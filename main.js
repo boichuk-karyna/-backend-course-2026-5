@@ -9,99 +9,130 @@ program
   .requiredOption('-p, --port <port>', 'Порт сервера')
   .requiredOption('-c, --cache <cache>', 'Шлях до директорії кешу');
 
-
 program.parse();
-
-const { host, port, cache } = program.opts();
+const options = program.opts();
 
 async function initCache() {
   try {
-    await fs.access(cache);
+    await fs.access(options.cache);
   } catch {
-    await fs.mkdir(cache, { recursive: true });
+    await fs.mkdir(options.cache, { recursive: true });
+    console.log(`Директорію створено: ${options.cache}`);
   }
 }
 
-const getFilePath = (code) => path.join(cache, `${code}.jpg`);
-
-function readRequestBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on('data', chunk => chunks.push(chunk));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
-
 const server = http.createServer(async (req, res) => {
+  const statusCode = req.url.slice(1);
+
+  if (!/^\d+$/.test(statusCode)) {
+    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    return res.end('Bad Request');
+  }
+
+  const filePath = path.join(options.cache, `${statusCode}.jpg`);
+
   try {
-    const pathname = req.url.split('?')[0];
-    const code = pathname.slice(1);
+    switch (req.method) {
 
-    if (!code || !/^\d+$/.test(code)) {
-      res.writeHead(400, { 'Content-Type': 'text/plain' });
-      return res.end('Bad Request');
-    }
-
-    const filePath = getFilePath(code);
-
-    if (req.method === 'GET') {
-      try {
-        const file = await fs.readFile(filePath);
-        res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-        return res.end(file);
-      } catch {
+      case 'GET': {
         try {
-          const response = await superagent
-            .get(`https://http.cat/${code}`)
-            .responseType('arraybuffer');
+          const image = await fs.readFile(filePath);
 
-          const buffer = Buffer.from(response.body);
+          res.writeHead(200, {
+            'Content-Type': 'image/jpeg',
+            'Content-Length': image.length,
+          });
+          return res.end(image);
 
-          await fs.writeFile(filePath, buffer);
-
-          res.writeHead(200, { 'Content-Type': 'image/jpeg' });
-          return res.end(buffer);
         } catch {
-          res.writeHead(404, { 'Content-Type': 'text/plain' });
-          return res.end('Not Found');
+          try {
+            const url = `https://http.cat/${statusCode}`;
+
+            const response = await superagent
+              .get(url)
+              .redirects(0)
+              .buffer(true);
+
+            if (!response.ok || !response.body) {
+              res.writeHead(404, { 'Content-Type': 'text/plain' });
+              return res.end('Not Found');
+            }
+
+            await fs.writeFile(filePath, response.body);
+
+            res.writeHead(200, {
+              'Content-Type': response.type || 'image/jpeg',
+              'Content-Length': response.body.length,
+            });
+
+            return res.end(response.body);
+
+          } catch {
+            res.writeHead(404, { 'Content-Type': 'text/plain' });
+            return res.end('Not Found');
+          }
         }
       }
-    }
 
-    if (req.method === 'PUT') {
-      try {
-        const buffer = await readRequestBody(req);
-        await fs.writeFile(filePath, buffer);
-        res.writeHead(201, { 'Content-Type': 'text/plain' });
-        return res.end('Created');
-      } catch {
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
-        return res.end('Server Error');
+      case 'PUT': {
+        const chunks = [];
+
+        req.on('data', chunk => chunks.push(chunk));
+
+        req.on('end', async () => {
+          try {
+            const buffer = Buffer.concat(chunks);
+
+            await fs.writeFile(filePath, buffer);
+
+            res.writeHead(201, {
+              'Content-Type': 'text/plain',
+              'Content-Length': Buffer.byteLength('Created'),
+            });
+
+            res.end('Created');
+
+          } catch {
+            res.writeHead(500, { 'Content-Type': 'text/plain' });
+            res.end('Internal Server Error');
+          }
+        });
+
+        break;
       }
-    }
 
-    if (req.method === 'DELETE') {
-      try {
-        await fs.unlink(filePath);
-        res.writeHead(200, { 'Content-Type': 'text/plain' });
-        return res.end('Deleted');
-      } catch {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        return res.end('Not Found');
+      case 'DELETE': {
+        try {
+          await fs.unlink(filePath);
+
+          res.writeHead(200, {
+            'Content-Type': 'text/plain',
+            'Content-Length': Buffer.byteLength('Deleted'),
+          });
+
+          res.end('Deleted');
+
+        } catch {
+          res.writeHead(404, { 'Content-Type': 'text/plain' });
+          res.end('Not Found');
+        }
+
+        break;
       }
+
+      default:
+        res.writeHead(405, { 'Content-Type': 'text/plain' });
+        res.end('Method Not Allowed');
     }
 
-    res.writeHead(405, { 'Content-Type': 'text/plain' });
-    res.end('Method Not Allowed');
   } catch {
     res.writeHead(500, { 'Content-Type': 'text/plain' });
-    res.end('Server Error');
+    res.end('Critical Server Error');
   }
 });
 
 initCache().then(() => {
-  server.listen(port, host, () => {
-    console.log(`Server running at http://${host}:${port}`);
+  server.listen(options.port, options.host, () => {
+    console.log(`Сервер працює на http://${options.host}:${options.port}`);
   });
 });
