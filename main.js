@@ -5,9 +5,9 @@ const { program } = require('commander');
 const superagent = require('superagent');
 
 program
-  .requiredOption('-h, --host <host>')
-  .requiredOption('-p, --port <port>')
-  .requiredOption('-c, --cache <cache>');
+  .requiredOption('-H, --host <host>', 'Server host')
+  .requiredOption('-p, --port <port>', 'Server port')
+  .requiredOption('-c, --cache <cache>', 'Cache directory')
 
 program.parse();
 
