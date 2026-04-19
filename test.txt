@@ -1,0 +1,20 @@
+GET (з кешу або http.cat):
+curl -i http://127.0.0.1:3000/200
+
+GET (неіснуючий код → 404):
+curl -i http://127.0.0.1:3000/999
+
+PUT (завантажити картинку):
+curl -X PUT http://127.0.0.1:3000/404 --data-binary "@test.jpg"
+
+GET (після PUT — з кешу):
+curl -i http://127.0.0.1:3000/404
+
+DELETE:
+curl -X DELETE http://127.0.0.1:3000/404
+
+DELETE (повторно → 404):
+curl -X DELETE http://127.0.0.1:3000/404
+
+INVALID METHOD (POST → 405):
+curl -X POST http://127.0.0.1:3000/200
